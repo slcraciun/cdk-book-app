@@ -1,0 +1,362 @@
+openapi: 3.0.3
+info:
+  title: Book App API
+  description: |
+    A serverless CRUD API for managing books.
+
+    ## Authentication
+    All write operations (POST, PUT, DELETE) require a valid Cognito JWT token.
+    Pass the `IdToken` obtained from Cognito in the `Authorization` header.
+
+    Read operations (GET) are public and do not require authentication.
+
+    ## Getting a token
+    ```bash
+    ./scripts/login_user.sh
+    ```
+  version: "1.0.0"
+
+servers:
+  - url: https://{apiId}.execute-api.{region}.amazonaws.com/v1
+    description: AWS API Gateway
+    variables:
+      apiId:
+        default: your-api-id
+        description: API Gateway ID from CloudFormation outputs
+      region:
+        default: us-east-1
+        description: AWS region
+
+security: []
+
+paths:
+  /books:
+    post:
+      summary: Create a book
+      description: Creates a new book. Requires admin JWT token.
+      security:
+        - CognitoAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookCreate"
+            example:
+              isbn: "978-0-06-112008-4"
+              name: "To Kill a Mockingbird"
+              authors: ["Harper Lee"]
+              languages: ["English"]
+              countries: ["United States"]
+              numberOfPages: 281
+              releaseDate: "1960-07-11"
+      responses:
+        "201":
+          description: Book created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+    get:
+      summary: Query books
+      description: Returns all books matching the given filters. Public endpoint.
+      parameters:
+        - name: isbn
+          in: query
+          schema:
+            type: string
+          example: "978-0-06-112008-4"
+        - name: name
+          in: query
+          schema:
+            type: string
+          example: "Mockingbird"
+        - name: author
+          in: query
+          description: Filters books where the given value matches any entry in the authors list.
+          schema:
+            type: string
+          example: "Harper Lee"
+        - name: languages
+          in: query
+          schema:
+            type: string
+          example: "English"
+        - name: countries
+          in: query
+          schema:
+            type: string
+          example: "United States"
+        - name: releaseDate
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "1960-07-11"
+        - name: nextToken
+          in: query
+          description: Pagination token returned from a previous response.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of matching books
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookListResponse"
+
+  /books/{isbn}:
+    parameters:
+      - name: isbn
+        in: path
+        required: true
+        schema:
+          type: string
+        example: "978-0-06-112008-4"
+
+    get:
+      summary: Get a book by ISBN
+      description: Returns a single book by ISBN. Public endpoint.
+      responses:
+        "200":
+          description: Book found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      summary: Update a book
+      description: |
+        Partially updates a book. Only fields present in the request body are updated.
+        The `isbn` field is ignored even if provided — it cannot be changed.
+        Requires admin JWT token.
+      security:
+        - CognitoAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookUpdate"
+            example:
+              name: "To Kill a Mockingbird (Updated Edition)"
+              numberOfPages: 300
+      responses:
+        "200":
+          description: Book updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      summary: Delete a book
+      description: Deletes a book by ISBN. Requires admin JWT token.
+      security:
+        - CognitoAuth: []
+      responses:
+        "204":
+          description: Book deleted successfully
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    CognitoAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Cognito IdToken obtained via ./scripts/login_user.sh
+
+  schemas:
+    BookCreate:
+      type: object
+      required:
+        - isbn
+        - name
+        - authors
+        - languages
+        - countries
+        - numberOfPages
+        - releaseDate
+      properties:
+        isbn:
+          type: string
+          description: International Standard Book Number (10 or 13 digits)
+          example: "978-0-06-112008-4"
+        name:
+          type: string
+          example: "To Kill a Mockingbird"
+        authors:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["Harper Lee"]
+        languages:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["English"]
+        countries:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          example: ["United States"]
+        numberOfPages:
+          type: integer
+          minimum: 1
+          example: 281
+        releaseDate:
+          type: string
+          format: date
+          example: "1960-07-11"
+
+    BookUpdate:
+      type: object
+      description: All fields are optional. isbn is ignored if provided.
+      properties:
+        name:
+          type: string
+        authors:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        languages:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        countries:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        numberOfPages:
+          type: integer
+          minimum: 1
+        releaseDate:
+          type: string
+          format: date
+
+    BookResponse:
+      allOf:
+        - $ref: "#/components/schemas/BookCreate"
+        - type: object
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    BookListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookResponse"
+        count:
+          type: integer
+          example: 1
+        nextToken:
+          type: string
+          nullable: true
+          description: Pass this value as the nextToken query parameter to get the next page.
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "BOOK_NOT_FOUND"
+            message:
+              type: string
+              example: "Book with ISBN '978-x-xx-xxxxxx-x' not found."
+            requestId:
+              type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "VALIDATION_ERROR"
+              message: "numberOfPages must be a positive integer."
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "UNAUTHORIZED"
+              message: "Missing or invalid authorization token."
+    Forbidden:
+      description: Authenticated user does not have permission
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "FORBIDDEN"
+              message: "You do not have permission to perform this action."
+    NotFound:
+      description: Book not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "BOOK_NOT_FOUND"
+              message: "Book with ISBN '978-0-06-112008-4' not found."
+    Conflict:
+      description: Book with this ISBN already exists
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "ISBN_CONFLICT"
+              message: "A book with ISBN '978-0-06-112008-4' already exists."
