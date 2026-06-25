@@ -8,13 +8,11 @@ class BookAppDynamodbTable(dynamodb.Table):
 
     Dev:  PAY_PER_REQUEST billing, DESTROY removal policy, no point-in-time recovery.
     Prod: PROVISIONED billing with auto-scaling, RETAIN removal policy, point-in-time recovery.
+    Both: AWS managed encryption at rest.
 
     All defaults can be overridden by the caller via kwargs.
     """
 
-    # Read capacity is set higher than the 10 simultaneous request requirement to account
-    # for read-heavy catalog usage patterns and leave headroom for traffic spikes.
-    # Write capacity is lower since book creation/updates are infrequent admin operations.
     READ_MIN_CAPACITY = 5
     READ_MAX_CAPACITY = 20
     WRITE_MIN_CAPACITY = 3
@@ -36,10 +34,13 @@ class BookAppDynamodbTable(dynamodb.Table):
             "point_in_time_recovery_specification",
             dynamodb.PointInTimeRecoverySpecification(point_in_time_recovery_enabled=is_prod),
         )
+        kwargs.setdefault("encryption", dynamodb.TableEncryption.AWS_MANAGED)
+
+        billing_mode = kwargs["billing_mode"]
 
         super().__init__(scope, construct_id, **kwargs)
 
-        if kwargs["billing_mode"] == dynamodb.BillingMode.PROVISIONED:
+        if billing_mode == dynamodb.BillingMode.PROVISIONED:
             read_scaling = self.auto_scale_read_capacity(
                 min_capacity=self.READ_MIN_CAPACITY,
                 max_capacity=self.READ_MAX_CAPACITY,

@@ -6,13 +6,13 @@ info:
 
     ## Authentication
     All write operations (POST, PUT, DELETE) require a valid Cognito JWT token.
-    Pass the `IdToken` obtained from Cognito in the `Authorization` header.
+    Pass the `IdToken` obtained from Cognito in the `Authorization` header (no `Bearer` prefix).
 
     Read operations (GET) are public and do not require authentication.
 
     ## Getting a token
     ```bash
-    ./scripts/login_user.sh
+    make login
     ```
   version: "1.0.0"
 
@@ -46,8 +46,8 @@ paths:
               isbn: "978-0-06-112008-4"
               name: "To Kill a Mockingbird"
               authors: ["Harper Lee"]
-              languages: ["English"]
-              countries: ["United States"]
+              languages: ["EN"]
+              countries: ["US"]
               numberOfPages: 281
               releaseDate: "1960-07-11"
       responses:
@@ -68,7 +68,12 @@ paths:
 
     get:
       summary: Query books
-      description: Returns all books matching the given filters. Public endpoint.
+      description: |
+        Returns books matching the given filters. Public endpoint.
+
+        **Filter logic:**
+        - Multiple values on the same field use OR: `?languages=EN,FR` → books with EN or FR
+        - Values across different fields use AND: `?languages=EN&countries=US` → EN language AND US country
       parameters:
         - name: isbn
           in: query
@@ -80,28 +85,37 @@ paths:
           schema:
             type: string
           example: "Mockingbird"
-        - name: author
+        - name: authors
           in: query
-          description: Filters books where the given value matches any entry in the authors list.
+          description: Matches books where the value appears in the authors list. Supports comma-separated OR values.
           schema:
             type: string
           example: "Harper Lee"
         - name: languages
           in: query
+          description: ISO 639-1 code. Supports comma-separated OR values (e.g. EN,FR).
           schema:
             type: string
-          example: "English"
+          example: "EN"
         - name: countries
           in: query
+          description: ISO 3166-1 alpha-2 code. Supports comma-separated OR values (e.g. US,GB).
           schema:
             type: string
-          example: "United States"
+          example: "US"
         - name: releaseDate
           in: query
+          description: Exact date match in ISO 8601 format.
           schema:
             type: string
             format: date
           example: "1960-07-11"
+        - name: limit
+          in: query
+          description: Maximum number of items to return per page (default 50).
+          schema:
+            type: integer
+            default: 50
         - name: nextToken
           in: query
           description: Pagination token returned from a previous response.
@@ -114,6 +128,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BookListResponse"
+
+  /books/batch:
+    post:
+      summary: Create multiple books
+      description: |
+        Creates up to 10 books in a single request. Requires admin JWT token.
+
+        Books are processed sequentially. Partial success is possible — each book
+        is attempted independently. Returns `201` if all succeeded, `207 Multi-Status`
+        if any failed.
+      security:
+        - CognitoAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookBatchCreate"
+            example:
+              books:
+                - isbn: "978-0-06-112008-4"
+                  name: "To Kill a Mockingbird"
+                  authors: ["Harper Lee"]
+                  languages: ["EN"]
+                  countries: ["US"]
+                  numberOfPages: 281
+                  releaseDate: "1960-07-11"
+                - isbn: "978-0-7432-7356-5"
+                  name: "1984"
+                  authors: ["George Orwell"]
+                  languages: ["EN"]
+                  countries: ["GB"]
+                  numberOfPages: 328
+                  releaseDate: "1949-06-08"
+      responses:
+        "201":
+          description: All books created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookBatchResponse"
+        "207":
+          description: Partial success — some books created, some failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookBatchResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /books/{isbn}:
     parameters:
@@ -142,7 +209,7 @@ paths:
       description: |
         Partially updates a book. Only fields present in the request body are updated.
         The `isbn` field is ignored even if provided — it cannot be changed.
-        Requires admin JWT token.
+        Unknown fields are rejected with 422. Requires admin JWT token.
       security:
         - CognitoAuth: []
       requestBody:
@@ -152,7 +219,6 @@ paths:
             schema:
               $ref: "#/components/schemas/BookUpdate"
             example:
-              name: "To Kill a Mockingbird (Updated Edition)"
               numberOfPages: 300
       responses:
         "200":
@@ -161,14 +227,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BookResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
     delete:
       summary: Delete a book
@@ -191,7 +257,9 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Cognito IdToken obtained via ./scripts/login_user.sh
+      description: |
+        Cognito IdToken obtained via `make login`.
+        Pass directly in the Authorization header — no "Bearer" prefix required.
 
   schemas:
     BookCreate:
@@ -207,7 +275,7 @@ components:
       properties:
         isbn:
           type: string
-          description: International Standard Book Number (10 or 13 digits)
+          description: International Standard Book Number (10 or 13 digits).
           example: "978-0-06-112008-4"
         name:
           type: string
@@ -223,13 +291,15 @@ components:
           items:
             type: string
           minItems: 1
-          example: ["English"]
+          description: ISO 639-1 language codes. Normalised to uppercase on ingestion.
+          example: ["EN"]
         countries:
           type: array
           items:
             type: string
           minItems: 1
-          example: ["United States"]
+          description: ISO 3166-1 alpha-2 country codes. Normalised to uppercase on ingestion.
+          example: ["US"]
         numberOfPages:
           type: integer
           minimum: 1
@@ -237,11 +307,25 @@ components:
         releaseDate:
           type: string
           format: date
+          description: ISO 8601 date format (YYYY-MM-DD).
           example: "1960-07-11"
+
+    BookBatchCreate:
+      type: object
+      required:
+        - books
+      properties:
+        books:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookCreate"
+          minItems: 1
+          maxItems: 10
+          description: List of books to create. Maximum 10 per request.
 
     BookUpdate:
       type: object
-      description: All fields are optional. isbn is ignored if provided.
+      description: All fields optional. isbn is ignored if provided. Unknown fields are rejected.
       properties:
         name:
           type: string
@@ -266,6 +350,7 @@ components:
         releaseDate:
           type: string
           format: date
+          description: ISO 8601 date format (YYYY-MM-DD).
 
     BookResponse:
       allOf:
@@ -288,11 +373,30 @@ components:
             $ref: "#/components/schemas/BookResponse"
         count:
           type: integer
-          example: 1
+          example: 2
         nextToken:
           type: string
           nullable: true
-          description: Pass this value as the nextToken query parameter to get the next page.
+          description: Pass as nextToken query param to retrieve the next page.
+
+    BookBatchResponse:
+      type: object
+      properties:
+        created:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookResponse"
+          description: Successfully created books.
+        failed:
+          type: array
+          items:
+            type: object
+            properties:
+              isbn:
+                type: string
+              reason:
+                type: string
+          description: Books that failed to be created with their reasons.
 
     ErrorResponse:
       type: object
@@ -320,6 +424,16 @@ components:
             error:
               code: "VALIDATION_ERROR"
               message: "numberOfPages must be a positive integer."
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: "VALIDATION_ERROR"
+              message: "releaseDate must be in ISO 8601 format: YYYY-MM-DD."
     Unauthorized:
       description: Missing or invalid JWT token
       content:
