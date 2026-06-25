@@ -65,12 +65,6 @@ make create-user          # targets dev
 ENV=prod make create-user # targets prod
 ```
 
-Or run the script directly:
-
-```bash
-./scripts/create_user.sh
-```
-
 **Get a JWT token** (interactive — prompts for email and password):
 
 ```bash
@@ -78,11 +72,6 @@ make login          # targets dev
 ENV=prod make login # targets prod
 ```
 
-Or run the script directly:
-
-```bash
-./scripts/login_user.sh
-```
 
 The `IdToken` printed at the end is used as the `Authorization` header value for API requests.
 
