@@ -11,7 +11,7 @@ REGION ?= eu-west-1
 # Install all dependencies (CDK + Lambda + dev tools)
 install:
 	$(PIP) install --upgrade pip
-	$(PIP) install -r cdk/requirements.txt -r cdk/requirements-dev.txt -r api/requirements.txt
+	$(PIP) install -r cdk/requirements.txt -r cdk/requirements-dev.txt -r api/requirements.txt -r requirements-test.txt
 	$(PIP) install ruff
 
 # Run tests
