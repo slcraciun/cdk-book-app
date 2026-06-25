@@ -1,4 +1,5 @@
 """Business logic for book management operations."""
+
 from datetime import datetime, timezone
 from typing import Optional
 

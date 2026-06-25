@@ -1,4 +1,4 @@
-.PHONY: install install-dev test lint synth deploy destroy create-user
+.PHONY: install install-dev test lint synth deploy destroy create-user login
 
 VENV    := .venv
 PIP     := $(VENV)/bin/pip
@@ -38,3 +38,7 @@ destroy:
 # Get a JWT token: make login
 login:
 	@bash scripts/login_user.sh
+
+# Create a Cognito user: make create-user
+create-user:
+	@ENV=$(ENV) bash scripts/create_user.sh

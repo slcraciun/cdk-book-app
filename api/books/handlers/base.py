@@ -37,6 +37,7 @@ def query_params(event: dict) -> dict:
 
 def handle_errors(fn: Callable) -> Callable:
     """Decorator that catches and maps exceptions to HTTP error responses."""
+
     def wrapper(event: dict, context) -> dict:
         print(f"Method: {event.get('httpMethod')} Path: {event.get('path')}")
         try:
@@ -50,5 +51,8 @@ def handle_errors(fn: Callable) -> Callable:
         except Exception:
             print(traceback.format_exc())
             request_id = getattr(context, "aws_request_id", "")
-            return error_response(500, "INTERNAL_ERROR", "An unexpected error occurred.", request_id)
+            return error_response(
+                500, "INTERNAL_ERROR", "An unexpected error occurred.", request_id
+            )
+
     return wrapper

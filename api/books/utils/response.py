@@ -13,11 +13,13 @@ def error_response(status_code: int, code: str, message: str, request_id: str = 
     return {
         "statusCode": status_code,
         "headers": {"Content-Type": "application/json"},
-        "body": json.dumps({
-            "error": {
-                "code": code,
-                "message": message,
-                "requestId": request_id,
+        "body": json.dumps(
+            {
+                "error": {
+                    "code": code,
+                    "message": message,
+                    "requestId": request_id,
+                }
             }
-        }),
+        ),
     }

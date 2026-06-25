@@ -39,7 +39,7 @@ class DynamoDBBookRepository:
         Returns the full updated item via ReturnValues=ALL_NEW.
         """
         update_expr = "SET " + ", ".join(f"#{k} = :{k}" for k in fields)
-        expr_names  = {f"#{k}": k for k in fields}
+        expr_names = {f"#{k}": k for k in fields}
         expr_values = {f":{k}": v for k, v in fields.items()}
 
         try:
@@ -106,6 +106,7 @@ class DynamoDBBookRepository:
         Multiple fields are combined with AND:
           ?countries=EN&languages=FR  →  contains(countries, EN) & contains(languages, FR)
         """
+
         def _field_condition(key: str, val) -> Attr:
             values = val if isinstance(val, list) else [val]
 
