@@ -197,3 +197,16 @@ However, in a spike scenario — for example, 10 clients simultaneously calling 
 `PAY_PER_REQUEST` eliminates this entirely: DynamoDB scales instantly to absorb any burst with no throttling and no upfront capacity planning. At this stage of the application, where traffic patterns are unknown and spikes are likely, PAY_PER_REQUEST is the correct default.
 
 **When to revisit:** once traffic is predictable and sustained, switching to PROVISIONED with auto-scaling (already modelled in `BookAppDynamodbTable`) reduces cost significantly at high throughput.
+
+## Next Steps
+
+### Custom domain for the API
+Currently the API is exposed via the default API Gateway URL (`https://{id}.execute-api.{region}.amazonaws.com/v1`). A production deployment should use a custom domain (e.g. `api.bookapp.com/v1`) via:
+- **AWS Certificate Manager** — provision a TLS certificate for the domain
+- **API Gateway custom domain** — map the domain to the API Gateway stage
+- **Route 53** — create an alias record pointing to the API Gateway domain
+
+This can be added as a CDK construct in `BookAppStack` using `apigw.DomainName` and `route53.ARecord`.
+
+### CI/CD pipeline
+We should add a GitHub Actions workflow that will run on every pull request to enforce code quality before merge. This ensures linting, unit tests, integration tests, and CDK synthesis all pass before any code reaches `main`.
