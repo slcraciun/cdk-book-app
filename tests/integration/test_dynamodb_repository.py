@@ -2,10 +2,9 @@ import os
 
 import boto3
 import pytest
-from moto import mock_aws
-
 from books.adapters.dynamodb_repository import DynamoDBBookRepository
 from books.models.errors import BookNotFoundError, IsbnConflictError
+from moto import mock_aws
 
 
 @pytest.fixture

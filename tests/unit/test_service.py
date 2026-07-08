@@ -1,5 +1,4 @@
 import pytest
-
 from books.models.errors import BookNotFoundError, ForbiddenError, IsbnConflictError
 
 

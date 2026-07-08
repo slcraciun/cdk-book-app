@@ -34,11 +34,12 @@ class BookAppStack(cdk.Stack):
 
         self.env_name = env_name
         is_prod = env_name == "prod"
+        table_name = self.node.try_get_context("table_name") or f"books-{env_name}"
 
         table = BookAppDynamodbTable(
             self, f"BooksTable-{env_name}",
             env_name=env_name,
-            table_name=f"books-{env_name}",
+            table_name=table_name,
             partition_key=dynamodb.Attribute(
                 name="isbn",
                 type=dynamodb.AttributeType.STRING,

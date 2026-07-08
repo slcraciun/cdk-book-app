@@ -1,7 +1,6 @@
 import pytest
-from pydantic import ValidationError
-
 from books.models.book import BookBatchCreate, BookCreate, BookUpdate
+from pydantic import ValidationError
 
 
 class TestBookCreate:
