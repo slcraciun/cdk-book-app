@@ -1,10 +1,14 @@
-.PHONY: venv install install-dev test lint synth deploy destroy create-user login
+.PHONY: venv install install-dev test lint synth deploy destroy create-user login node-version
 
 PYTHON  ?= python3
 VENV    := .venv
 PIP     := $(VENV)/bin/pip
 PYTEST  := $(VENV)/bin/pytest
 RUFF    := $(VENV)/bin/ruff
+
+NVM_DIR ?= $(HOME)/.nvm
+# Load nvm (pinned Node version) and the venv, then run the given command
+WITH_NODE = bash -c 'source $(NVM_DIR)/nvm.sh && nvm use >/dev/null && source $(VENV)/bin/activate && $(1)'
 
 ENV    ?= dev
 REGION ?= eu-west-1
@@ -34,6 +38,10 @@ test:
 lint:
 	$(RUFF) check api/ tests/
 	$(RUFF) format --check api/ tests/
+
+# Print the nvm-resolved Node version (installs it if missing)
+node-version:
+	@$(call WITH_NODE,node --version)
 
 # Synthesise CloudFormation templates (no deploy)
 synth:
