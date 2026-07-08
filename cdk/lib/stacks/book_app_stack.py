@@ -1,5 +1,6 @@
 import aws_cdk as cdk
 from aws_cdk import aws_apigateway as apigw
+from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_cognito as cognito
 from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_lambda as lambda_
@@ -16,6 +17,8 @@ _BUNDLING = cdk.BundlingOptions(
     ],
 )
 
+_REPLICA_REGION = "eu-west-2"
+
 
 class BookAppStack(cdk.Stack):
 
@@ -30,20 +33,109 @@ class BookAppStack(cdk.Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         self.env_name = env_name
+        is_prod = env_name == "prod"
+        table_name = self.node.try_get_context("table_name") or f"books-{env_name}"
 
         table = BookAppDynamodbTable(
             self, f"BooksTable-{env_name}",
             env_name=env_name,
-            table_name=f"books-{env_name}",
+            table_name=table_name,
             partition_key=dynamodb.Attribute(
                 name="isbn",
                 type=dynamodb.AttributeType.STRING,
             ),
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST
+            billing=dynamodb.Billing.on_demand(),
+            # Cross-region Global Table replica so reads/writes survive a regional
+            # outage. Requires the stack to be deployed to a concrete env (see app.py).
+            replicas=[
+                dynamodb.ReplicaTableProps(region=_REPLICA_REGION, point_in_time_recovery=True),
+            ] if is_prod else None,
         )
 
         handlers = self._create_handlers(table)
-        self._create_rest_api(handlers, user_pool)
+        api = self._create_rest_api(handlers, user_pool)
+
+        if is_prod:
+            self._create_replication_alarm(table)
+            self._create_table_throttle_alarm(table)
+            self._create_lambda_alarms(handlers)
+            self._create_api_alarm(api)
+
+    def _create_replication_alarm(self, table: BookAppDynamodbTable) -> None:
+        replication_latency = cloudwatch.Metric(
+            namespace="AWS/DynamoDB",
+            metric_name="ReplicationLatency",
+            dimensions_map={"TableName": table.table_name, "ReceivingRegion": _REPLICA_REGION},
+            statistic="Maximum",
+            period=cdk.Duration.minutes(1),
+        )
+        cloudwatch.Alarm(
+            self, "ReplicationLatencyAlarm",
+            metric=replication_latency,
+            threshold=60_000,
+            evaluation_periods=3,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+            alarm_description=(
+                f"DynamoDB replication from {self.region} to {_REPLICA_REGION} "
+                "has been lagging more than 60s for 3 consecutive minutes"
+            ),
+        )
+
+    def _create_table_throttle_alarm(self, table: BookAppDynamodbTable) -> None:
+        cloudwatch.Alarm(
+            self, "TableThrottlingAlarm",
+            # Matches the operations the repository actually issues (see
+            # api/books/adapters/dynamodb_repository.py) — list/create_batch
+            # both go through get_item/put_item/scan, not Query or BatchWriteItem.
+            metric=table.metric_throttled_requests_for_operations(
+                operations=[
+                    dynamodb.Operation.GET_ITEM,
+                    dynamodb.Operation.PUT_ITEM,
+                    dynamodb.Operation.UPDATE_ITEM,
+                    dynamodb.Operation.DELETE_ITEM,
+                    dynamodb.Operation.SCAN,
+                ],
+                period=cdk.Duration.minutes(5),
+            ),
+            threshold=1,
+            evaluation_periods=2,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            alarm_description="DynamoDB requests are being throttled",
+        )
+
+    def _create_lambda_alarms(self, handlers: dict) -> None:
+        for key, fn in handlers.items():
+            label = key.replace("_", " ").title().replace(" ", "")
+            cloudwatch.Alarm(
+                self, f"{label}ErrorsAlarm",
+                metric=fn.metric_errors(period=cdk.Duration.minutes(5)),
+                threshold=1,
+                evaluation_periods=1,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+                alarm_description=f"{label} Lambda is erroring",
+            )
+            cloudwatch.Alarm(
+                self, f"{label}ThrottlesAlarm",
+                metric=fn.metric_throttles(period=cdk.Duration.minutes(5)),
+                threshold=1,
+                evaluation_periods=2,
+                comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+                treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+                alarm_description=f"{label} Lambda is being throttled",
+            )
+
+    def _create_api_alarm(self, api: apigw.RestApi) -> None:
+        cloudwatch.Alarm(
+            self, "ApiServerErrorAlarm",
+            metric=api.metric_server_error(period=cdk.Duration.minutes(5)),
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            treat_missing_data=cloudwatch.TreatMissingData.NOT_BREACHING,
+            alarm_description="API Gateway is returning 5XX errors",
+        )
 
     def _make_fn(self, name: str, handler: str, table: BookAppDynamodbTable) -> lambda_.Function:
         return lambda_.Function(

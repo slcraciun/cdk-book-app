@@ -1,6 +1,6 @@
 import pytest
-
 from books.services.book_service import BookService
+
 from tests.fakes.in_memory_repository import InMemoryBookRepository
 
 SAMPLE_BOOK_DATA = {
